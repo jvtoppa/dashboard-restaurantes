@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Map + Dynamic Chart + Heatmap</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+  body { margin:0; font-family: Arial,sans-serif; background:#f0f0f0; display:flex; justify-content:center; align-items:center; min-height:100vh; padding:20px; box-sizing:border-box; }
+  #container { display:flex; flex-direction:column; width:1200px; height:900px; background:#fff; border-radius:8px; overflow:hidden; box-shadow:0 0 10px rgba(0,0,0,0.2); }
+  #top-section { display:flex; flex:2; border-bottom:2px solid #ccc; }
+  #map-wrapper { flex:2; position:relative; border-right:2px solid #ccc; }
+  #map { width:100%; height:100%; }
+  #right-panel { flex:1; display:flex; flex-direction:column; padding:10px; box-sizing:border-box; background:#f5f5f5; }
+  #chart { height:100%; min-height:300px; }
+  #bottom-section { flex:1; padding:15px; box-sizing:border-box; }
+  #heatmap { width:100%; height:100%; cursor:pointer; }
+  .dropdown-container { margin-bottom:10px; }
+  select { padding:6px 10px; cursor:pointer; width:100%; }
+  button { padding:6px 10px; cursor:pointer; margin-top:5px; }
+  h3 { margin:0 0 10px 0; text-align:center; }
+</style>
+</head>
+<body>
+<div id="container">
+  <div id="top-section">
+    <div id="map-wrapper"><div id="map"></div></div>
+    <div id="right-panel">
+      <div class="dropdown-container">
+        <select id="graph-select" onchange="updateChart(); updateHeatmap()">
+          <option value="RA">RA</option>
+          <option value="RS">RS</option>
+          <option value="RU-A">RU-A</option>
+          <option value="RU-B">RU-B</option>
+          <option value="Temperature">Temperature</option>
+          <option value="Humidity">Humidity</option>
+          <option value="WindSpeed">WindSpeed</option>
+          <option value="Pressure">Pressure</option>
+        </select>
+      </div>
+      <div id="chart"></div>
+      <button id="reset-btn">Reset</button>
+    </div>
+  </div>
+  <div id="bottom-section">
+    <h3>Mapa de Calor (Clique para filtrar por dia)</h3>
+    <div id="heatmap"></div>
+  </div>
+</div>
+
+<script>
+// --- Leaflet Map ---
+const map = L.map('map', {
+  zoomControl:false, scrollWheelZoom:false, doubleClickZoom:false,
+  boxZoom:false, keyboard:false
+}).setView([-22.817, -47.068],16);
+
+L.tileLayer('https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png', {
+  attribution:'&copy; Stadia Maps'
+}).addTo(map);
+
+// --- Polygons ---
+const echartsLayer = L.DomUtil.create('div','echarts-layer', map.getPanes().overlayPane);
+echartsLayer.style.position='absolute';
+echartsLayer.style.pointerEvents='auto';
+const chartMapOverlay = echarts.init(echartsLayer);
+
+const polygons=[
+  {name:"Restaurante Universitário", coords:[[-22.8179271,-47.0723574],[-22.8177786,-47.0718485],[-22.817512,-47.0719035],[-22.817372,-47.0719341],[-22.817207,-47.0719744],[-22.817261,-47.0722476],[-22.817311,-47.0725007],[-22.8179271,-47.0723574]]},
+  {name:"Restaurante Acadêmico", coords:[[-22.8224543,-47.0652258],[-22.8224905,-47.0651924],[-22.8225801,-47.0651098],[-22.8225289,-47.0650443],[-22.8225632,-47.0650126],[-22.8224665,-47.0648892],[-22.8223063,-47.0650369],[-22.8224543,-47.0652258]]},
+  {name:"Restaurante da Saturnino", coords:[[-22.8151011,-47.0625684],[-22.8154739,-47.0624904],[-22.8154207,-47.0621915],[-22.8150479,-47.0622695],[-22.8151011,-47.0625684]]}
+];
+
+function projectPolygon(poly){
+  return poly.coords.map(c=>{
+    const p=map.latLngToLayerPoint([c[0],c[1]]);
+    return [p.x,p.y];
+  });
+}
+
+function updatePolygons(){
+  const seriesData = polygons.map(poly=>({
+    name:poly.name,
+    type:'custom',
+    renderItem:(params,api)=>({type:'polygon', shape:{points:projectPolygon(poly)}, style:api.style({fill:'rgba(255,100,100,0.3)', stroke:'red', lineWidth:2})}),
+    data:[0]
+  }));
+  chartMapOverlay.setOption({
+    xAxis:{show:false, min:0, max:map.getSize().x, type:'value'},
+    yAxis:{show:false, min:0, max:map.getSize().y, inverse:true, type:'value'},
+    series:seriesData
+  });
+}
+
+function resizeOverlay(){
+  const size=map.getSize();
+  echartsLayer.style.width=size.x+'px';
+  echartsLayer.style.height=size.y+'px';
+  chartMapOverlay.resize();
+  updatePolygons();
+}
+
+map.on('move',updatePolygons);
+map.on('zoom',resizeOverlay);
+map.on('resize',resizeOverlay);
+resizeOverlay();
+
+chartMapOverlay.getZr().on('click', params=>{
+  const x=params.offsetX, y=params.offsetY;
+  polygons.forEach(poly=>{
+    if(isPointInPolygon([x,y], projectPolygon(poly))){
+      updateDropdownForPolygon(poly.name);
+    }
+  });
+});
+
+function isPointInPolygon(point,vs){
+  let inside=false;
+  const x=point[0],y=point[1];
+  for(let i=0,j=vs.length-1;i<vs.length;j=i++){
+    const xi=vs[i][0],yi=vs[i][1];
+    const xj=vs[j][0],yj=vs[j][1];
+    const intersect = ((yi>y)!=(yj>y))&&(x<(xj-xi)*(y-yi)/(yj-yi+1e-9)+xi);
+    if(intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function updateDropdownForPolygon(name){
+  const dropdown=document.getElementById('graph-select');
+  if(name==="Restaurante Universitário") dropdown.value='RU-A';
+  else if(name==="Restaurante Acadêmico") dropdown.value='RA';
+  else if(name==="Restaurante da Saturnino") dropdown.value='RS';
+  updateChart();
+}
+
+// --- Time Series Chart ---
+const chartRight = echarts.init(document.getElementById('chart'));
+const heatmap = echarts.init(document.getElementById('heatmap'));
+let csvData=[];
+let timeLabels=[];
+let selectedDay=null;
+let uniqueDays=[];
+
+async function fetchCSV(){
+  try{
+    const res=await fetch('https://nana.tail7c9f88.ts.net/line.csv'); // replace with your CSV path
+    const text=await res.text();
+    parseCSV(text);
+    updateChart();
+    updateHeatmap();
+  }catch(e){ console.error('Failed to fetch CSV:', e); }
+}
+
+function parseCSV(text){
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',');
+  csvData = lines.slice(1).map(line => {
+    const vals = line.split(',');
+    let obj = {};
+    headers.forEach((h,i)=>{ obj[h]=vals[i]; });
+    return obj;
+  });
+  timeLabels = csvData.map(d=>d.HourMinSec);
+
+  // --- uniqueDays sorted chronologically ---
+  const daySet = new Set(csvData.map(d=>d.Day));
+  uniqueDays = Array.from(daySet);
+  uniqueDays.sort((a,b)=>{
+    const da = new Date(a.replace(/:/g,'-'));
+    const db = new Date(b.replace(/:/g,'-'));
+    return da-db;
+  });
+}
+
+function updateChart(){
+  const metric=document.getElementById('graph-select').value;
+  let filteredData = csvData;
+  if(selectedDay) filteredData = csvData.filter(d=>d.Day===selectedDay);
+  const xData = filteredData.map(d=>d.HourMinSec);
+  const yData = filteredData.map(d=>parseFloat(d[metric]));
+  chartRight.setOption({
+    title:{ text: metric + (selectedDay ? ' (Day '+selectedDay+')':' - Série Temporal') },
+    tooltip:{ trigger:'axis' },
+    xAxis:{ type:'category', data:xData, name:'Time' },
+    yAxis:{ type:'value', name:metric },
+    series:[{ type:'line', data:yData, smooth:true }]
+  });
+}
+
+
+
+// --- date helpers ---
+function pad(n){ return String(n).padStart(2,'0'); }
+function parseDayToDate(s){ const [y,m,d] = s.split(':'); return new Date(+y, +m-1, +d); }
+function formatDateColon(d){ return d.getFullYear()+':'+pad(d.getMonth()+1)+':'+pad(d.getDate()); }
+
+// Decide aggregation: sum for counters, average for meteo
+function getAggMode(metric){
+  const avgMetrics = new Set(['Temperature','Humidity','WindSpeed','Pressure']);
+  return avgMetrics.has(metric) ? 'avg' : 'sum';
+}
+
+// Build continuous day range and aggregate per day
+function aggregateDaily(metric){
+  const mode = getAggMode(metric);
+  const map = new Map(); // dayStr -> {sum, count}
+  for(const r of csvData){
+    const v = parseFloat(r[metric]);
+    if(!isFinite(v)) continue;
+    const day = r.Day;
+    if(!map.has(day)) map.set(day,{sum:0,count:0});
+    const obj = map.get(day);
+    obj.sum += v;
+    obj.count += 1;
+  }
+  if(map.size === 0) return {days:[], values:[]};
+
+  // make a continuous list of days between min and max
+  const presentDates = Array.from(map.keys()).map(parseDayToDate);
+  const minDate = new Date(Math.min(...presentDates));
+  const maxDate = new Date(Math.max(...presentDates));
+
+  const days = [];
+  const values = [];
+  for(let dt = new Date(minDate); dt <= maxDate; dt.setDate(dt.getDate()+1)){
+    const key = formatDateColon(dt);
+    days.push(key);
+    if(map.has(key)){
+      const {sum, count} = map.get(key);
+      values.push(mode === 'avg' ? sum / count : sum);
+    } else {
+      values.push(0);
+    }
+  }
+  return {days, values};
+}
+
+
+
+
+// --- Heatmap ---
+
+function updateHeatmap(){
+  if(!csvData.length) return;
+
+  const metric = document.getElementById('graph-select').value;
+  const {days, values} = aggregateDaily(metric);
+  if(days.length === 0) return;
+
+  // Build GitHub-like calendar: x = week index, y = weekday
+  const first = parseDayToDate(days[0]);
+  const weekdays = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const cells = [];
+  const dayMap = {}; // (weekIdx-weekday) -> day string
+  let maxVal = 0;
+
+  for(let i=0;i<days.length;i++){
+    const day = days[i];
+    const val = values[i] || 0;
+    const date = parseDayToDate(day);
+    const diffDays = Math.round((date - first) / 86400000);
+    const weekIndex = Math.floor(diffDays / 7);
+    const weekday = date.getDay();
+
+    cells.push([weekIndex, weekday, val, day]); // keep day for tooltip
+    dayMap[`${weekIndex}-${weekday}`] = day;
+    if(val > maxVal) maxVal = val;
+  }
+
+  const maxWeek = cells.length ? Math.max(...cells.map(c=>c[0])) : 0;
+
+  // Robust color scaling (avoid one outlier washing colors)
+  const positiveVals = values.filter(v => isFinite(v));
+  positiveVals.sort((a,b)=>a-b);
+  const q95 = positiveVals.length ? positiveVals[Math.floor(0.95*(positiveVals.length-1))] : maxVal;
+  const vmax = Math.max(q95 || 0, maxVal || 0) || 1;
+
+  heatmap.setOption({
+    tooltip:{
+      formatter: p => {
+        const day = cells[p.dataIndex][3];
+        const v = Number(p.data[2]);
+        const maybeUnits = (getAggMode(metric)==='avg') ? '' : ''; // customize units if you want
+        return `${day}<br>${metric}: ${isFinite(v) ? v.toFixed(2) : '—'}${maybeUnits}`;
+      }
+    },
+    xAxis:{ type:'category', data:Array.from({length:maxWeek+1},(_,i)=>i), name:'Week' },
+    yAxis:{ type:'category', data:weekdays, inverse:true, name:'Weekday' },
+    series:[{
+      type:'heatmap',
+      data: cells.map(c=>[c[0], c[1], c[2]]),
+      label:{show:false},
+      emphasis:{ itemStyle:{ borderWidth:1, borderColor:'#999' } }
+    }],
+    visualMap:{
+      min:0,
+      max:vmax,
+      calculable:true,
+      orient:'horizontal',
+      left:'center',
+      top:'top',
+      inRange:{ color:['#ebedf0','#c6e48b','#7bc96f','#239a3b','#196127'] }
+    }
+  });
+
+  // Click -> select day and update main chart
+  heatmap.off('click');
+  heatmap.on('click', function(params){
+    const key = params.data[0] + '-' + params.data[1];
+    const day = dayMap[key];
+    if(day){
+      selectedDay = day;
+      updateChart();
+    }
+  });
+}
+
+// Heatmap click -> select day
+heatmap.on('click', function(params){
+  const dayIndex=params.data[0];
+  if(dayIndex>=0 && dayIndex<uniqueDays.length){
+    selectedDay=uniqueDays[dayIndex];
+    updateChart();
+  }
+});
+
+// --- Fetch CSV every 2 minutes ---
+fetchCSV();
+setInterval(fetchCSV,120000);
+
+// Reset button
+document.getElementById('reset-btn').onclick = () => { selectedDay=null; updateChart(); updateHeatmap(); };
+
+// --- Resize charts ---
+window.addEventListener('resize', ()=>{
+  chartRight.resize();
+  heatmap.resize();
+  chartMapOverlay.resize();
+});
+</script>
+</body>
+</html>
