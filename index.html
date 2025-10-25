@@ -11,7 +11,7 @@
 <body>
   <!-- Page Title -->
   <div style="text-align:center; margin-bottom:15px;">
-    <h1 style="font-size:32px;font-family: Playfair Display'; color:#333; margin:0;">Unicamp's Restaurants - Data Collection</h1>
+    <h1 style="font-size:32px;font-family: Playfair Display'; color:#333; margin:0;">Unicamp's Restaurants - Dashboard</h1>
 <style>
   body {
     margin:0; 
@@ -41,6 +41,39 @@
     flex:2; 
     border-bottom:2px solid #e0e0e0; 
   }
+  #occupancy-bar-container {
+  width: 100%;
+  text-align: center;
+  padding: 10px 20px;
+  box-sizing: border-box;
+  background: #fff;
+  border-top: 2px solid #e0e0e0;
+}
+
+#occupancy-bar-bg {
+  width: 80%;
+  height: 25px;
+  background: #ddd;
+  border-radius: 12px;
+  margin: 0 auto;
+  overflow: hidden;
+  position: relative;
+}
+
+#occupancy-bar {
+  height: 100%;
+  width: 0%;
+  background: #4CAF50;
+  border-radius: inherit;
+  transition: width 0.5s ease, background 0.5s ease;
+}
+
+#occupancy-label {
+  font-weight: bold;
+  color: #333;
+  margin-top: 5px;
+  font-size: 14px;
+}
 
   #map-wrapper { 
     flex:2; 
@@ -122,7 +155,7 @@
   .full-width-btn {
   width: 100%;           /* Almost full width */
   max-width: 1000px;     /* Optional: limit maximum width */
-  padding: 12px 0px;      /* Make it taller */
+  padding: 5px 0px;      /* Make it taller */
   font-size: 16px;
   font-weight: bold;
   border-radius: 8px;
@@ -145,8 +178,15 @@
   <div id="top-section">
     <div id="map-wrapper"><div id="map"></div></div>
     <div id="right-panel">
+      <div id="occupancy-bar-container">
+        <h3 id="occupancy-title">Current Line Occupancy</h3>
+        <div id="occupancy-bar-bg">
+          <div id="occupancy-bar"></div>
+        </div>
+        <p id="occupancy-label">No data yet</p>
+      </div>      
       <div class="dropdown-container">
-        <select id="graph-select" onchange="updateChart(); updateHeatmap()">
+        <select id="graph-select" onchange="updateChart(); updateHeatmap(); updateOccupancyBarFromDropdown();">
           <option value="RA">RA</option>
           <option value="RS">RS</option>
           <option value="RU-A">RU-A</option>
@@ -163,7 +203,7 @@
   </div>
   <div id="bottom-section" style="display:flex; flex-direction:column; align-items:center;">
     <h3>Heatmap (Click to Filter per Day)</h3>
-    <div id="heatmap" style="width:100%; height:250px; margin-bottom:10px;"></div>
+    <div id="heatmap" style="width:100%; height:250px; margin-bottom:0px;"></div>
     <button id="download-csv-btn" class="full-width-btn">Download CSV</button>
 
   </div>
@@ -286,7 +326,63 @@ function updateDropdownForPolygon(name){
   else if(name==="Restaurante da Saturnino") dropdown.value='RS';
   updateChart();
   updateHeatmap();
+  updateOccupancyBar(name);
 }
+
+function updateOccupancyBar(selectedName) {
+  if (!csvData || !csvData.length) return;
+
+  const lastRow = csvData[csvData.length - 1];
+  if (!lastRow) return;
+
+  let current = 0;
+  let displayName = selectedName;
+
+  if (selectedName === "Restaurante Universitário") {
+    // sum RU-A + RU-B
+    const ruA = parseFloat(lastRow["RU-A"]) || 0;
+    const ruB = parseFloat(lastRow["RU-B"]) || 0;
+    current = ruA + ruB;
+    displayName = "Restaurante Universitário (RU-A + RU-B)";
+  } else if (selectedName === "Restaurante Administrativo") {
+    current = parseFloat(lastRow["RA"]) || 0;
+  } else if (selectedName === "Restaurante da Saturnino") {
+    current = parseFloat(lastRow["RS"]) || 0;
+  } else {
+    return;
+  }
+
+  const maxCapacity = 20; // for bar scaling, adjust if needed
+  const barWidth = Math.min((current / maxCapacity) * 100, 100);
+
+  const bar = document.getElementById("occupancy-bar");
+  const label = document.getElementById("occupancy-label");
+
+  bar.style.width = barWidth + "%";
+  if (barWidth > 80) bar.style.background = "#e53935"; // red
+  else if (barWidth > 40) bar.style.background = "#fdd835"; // yellow
+  else bar.style.background = "#43a047"; // green
+  if(current === 1) label.textContent = `${displayName}: ${current} person`;
+  else label.textContent = `${displayName}: ${current} people`;
+
+}
+
+
+function updateOccupancyBarFromDropdown() {
+  const dropdown = document.getElementById('graph-select');
+  const value = dropdown.value;
+
+  const reverseMap = {
+    "RA": "Restaurante Administrativo",
+    "RS": "Restaurante da Saturnino",
+    "RU-A": "Restaurante Universitário",
+    "RU-B": "Restaurante Universitário" // if you want RU-B treated separately, can add new name
+  };
+
+  const restaurantName = reverseMap[value];
+  if (restaurantName) updateOccupancyBar(restaurantName);
+}
+
 
 // --- Charts & Heatmap ---
 const chartRight = echarts.init(document.getElementById('chart'));
@@ -300,6 +396,19 @@ async function fetchCSV(){
     parseCSV(text);
     updateChart();
     updateHeatmap();
+    const currentDropdown = document.getElementById('graph-select').value;
+const currentRestName = Object.keys({
+  "Restaurante Universitário": "RU-A",
+  "Restaurante Administrativo": "RA",
+  "Restaurante da Saturnino": "RS"
+}).find(k => ({
+  "Restaurante Universitário": "RU-A",
+  "Restaurante Administrativo": "RA",
+  "Restaurante da Saturnino": "RS"
+}[k] === currentDropdown));
+
+if (currentRestName) updateOccupancyBar(currentRestName);
+
   }catch(e){ console.error('Failed to fetch CSV:', e); }
 }
 
