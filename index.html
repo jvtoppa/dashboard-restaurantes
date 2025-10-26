@@ -29,7 +29,7 @@
     display:flex;
     flex-direction:column;
     width:1300px;
-    height:950px;
+  
     background:#fff;
     border-radius:12px;
     overflow:hidden;
@@ -194,7 +194,6 @@
           <option value="Temperature">Temperature</option>
           <option value="Humidity">Humidity</option>
           <option value="WindSpeed">WindSpeed</option>
-          <option value="Pressure">Pressure</option>
         </select>
       </div>
       <div id="chart"></div>
@@ -204,6 +203,32 @@
   <div id="bottom-section" style="display:flex; flex-direction:column; align-items:center;">
     <h3>Heatmap (Click to Filter per Day)</h3>
     <div id="heatmap" style="width:100%; height:250px; margin-bottom:0px;"></div>
+    <div id="predicted-bars-container" 
+     style="width:100%; margin-top:20px; display:flex; flex-direction:row; align-items:flex-start; gap:10px;">
+  
+  <!-- Left side: Bars -->
+  <div style="flex:2; display:flex; flex-direction:column; gap:5px;">
+    <h3 style="margin:0 0 5px 0; font-weight:bold; color:#333;">Predicted Line Occupancy for Tomorrow</h3>
+    <div id="predicted-bars"></div>
+  </div>
+
+  <!-- Right side: Text box -->
+  <div style="flex:3; display:flex; flex-direction:column; gap:5px;">
+    <h3 style="margin:0; font-weight:bold; color:#333;">Currently, on the Restaurants</h3>
+    <div id="predicted-text-box" 
+         style="min-height:120px; padding:10px; border-radius:6px; border:3px solid #09d18e; background:#fafafa; color:#333; font-size:14px; overflow-y:auto;">
+      Loading...
+    </div>
+  </div>
+
+</div>
+
+
+      </div>
+    
+    </div>
+    
+        
     <button id="download-csv-btn" class="full-width-btn">Download CSV</button>
 
   </div>
@@ -248,6 +273,30 @@ function getPolygonCentroid(coords) {
   return [xSum / coords.length, ySum / coords.length];
 }
 
+function updateTextBoxBorder() {
+    if (!predictionData) return;
+
+    const maxCapacity = 8000; // same scaling as your predicted bars
+    let totalTomorrow = 0;
+
+    // Get lunch and dinner indices
+    const lunchIndex = predictionData.MealType.findIndex(mt => mt === "lunch");
+    const dinnerIndex = predictionData.MealType.findIndex(mt => mt === "dinner");
+
+    ["RU-A", "RU-B", "RA", "RS"].forEach(key => {
+        const lunchVal = parseFloat(predictionData[key][lunchIndex]) || 0;
+        const dinnerVal = parseFloat(predictionData[key][dinnerIndex]) || 0;
+        totalTomorrow += lunchVal + dinnerVal;
+    });
+
+    const percent = (totalTomorrow / maxCapacity) * 100;
+
+    const box = document.getElementById("predicted-text-box");
+    if (percent > 80) box.style.borderColor = "#D32F2F"; // red
+    else if (percent > 40) box.style.borderColor = "#FFA726"; // yellow
+    else box.style.borderColor = "#2E7D32"; // green
+}
+
 function updatePolygons(){
   const seriesData = polygons.map(poly=>({
     name: poly.name,
@@ -258,7 +307,15 @@ function updatePolygons(){
       return {
         type:'group',
         children:[
-          { type:'polygon', shape:{points}, style:api.style({fill:'rgba(0,255,0,0.3)', stroke:'green', lineWidth:2}) },
+          { 
+            type:'polygon', 
+            shape:{points}, 
+            style:api.style({
+                fill: poly.fillColor || 'rgba(46,125,50,0.2)', 
+                stroke: poly.strokeColor || '#555', // <-- use strokeColor
+                lineWidth:3
+            }) 
+          },
           { type:'text', style:{
               text: poly.name,
               x: cx,
@@ -328,6 +385,63 @@ function updateDropdownForPolygon(name){
   updateHeatmap();
   updateOccupancyBar(name);
 }
+function updateTextBoxNow() {
+    if (!csvData || !csvData.length) return;
+
+    const lastRow = csvData[csvData.length - 1];
+    const temperature = parseFloat(lastRow.Temperature || 0);
+    const humidity = parseFloat(lastRow.Humidity || 0);
+
+    const box = document.getElementById("predicted-text-box");
+
+    let warn = "No alerts.";
+    let warning = "Temperature and humidity are comfortable.";
+    let borderColor = "#2E7D32"; // green
+    let iconUrl = "icons/ok.png";
+
+    if (temperature > 35 && humidity > 70) {
+        warn = "Danger:";
+        warning = "High temperature and humidity! Risk of heat exhaustion! Bring water and umbrellas if you plan to stay on the line.";
+        borderColor = "#D32F2F";
+        iconUrl = "icons/fire.png";
+    } else if (temperature > 25 && humidity > 50) {
+        warn = "Caution:";
+        warning = "High temperature and humidity. Bring some water and do not overstay in the sun.";
+        borderColor = "#FFA726";
+        iconUrl = "icons/danger.png";
+    }
+
+    const now = new Date();
+    const currentMinutes = now.getHours() * 60 + now.getMinutes();
+    const openIntervals = [
+        [7 * 60, 8 * 60 + 30],
+        [10 * 60 + 30, 14 * 60],
+        [17 * 60 + 30, 19 * 60],
+        [11 * 60 + 15, 14 * 60],
+        [17 * 60 + 30, 19 * 60]
+    ];
+
+    const isOpen = openIntervals.some(interval =>
+        currentMinutes >= interval[0] && currentMinutes <= interval[1]
+    );
+    const statusText = isOpen ? "Restaurants are OPEN" : "Restaurants are CLOSED";
+
+    // --- Flexbox with proper alignment ---
+    box.style.borderColor = borderColor;
+    box.innerHTML = `
+        <div style="display:flex; align-items:center; gap:100px; padding-left:20px;">
+            <img src="${iconUrl}" style="width:60px; height:60px; flex-shrink:0;">
+            <div style="display:flex; flex-direction:column; justify-content:center; margin-left:10px;">
+                <p style="margin:2px 0; font-size:14px;"><strong>Temperature:</strong> ${temperature.toFixed(1)}°C</p>
+                <p style="margin:2px 0; font-size:14px;"><strong>Humidity:</strong> ${humidity.toFixed(1)}%</p>
+                <p style="margin:2px 0; font-size:14px;"><strong>${warn}</strong> ${warning}</p>
+                <p style="margin:2px 0; font-size:14px;"><strong>Status:</strong> ${statusText}</p>
+            </div>
+        </div>
+    `;
+}
+
+
 
 function updateOccupancyBar(selectedName) {
   if (!csvData || !csvData.length) return;
@@ -359,9 +473,9 @@ function updateOccupancyBar(selectedName) {
   const label = document.getElementById("occupancy-label");
 
   bar.style.width = barWidth + "%";
-  if (barWidth > 80) bar.style.background = "#e53935"; // red
-  else if (barWidth > 40) bar.style.background = "#fdd835"; // yellow
-  else bar.style.background = "#43a047"; // green
+  if (barWidth > 80) bar.style.background = "#D32F2F"; // red
+  else if (barWidth > 40) bar.style.background = "#FFA726"; // yellow
+  else bar.style.background = "#2E7D32"; // green
   if(current === 1) label.textContent = `${displayName}: ${current} person`;
   else label.textContent = `${displayName}: ${current} people`;
 
@@ -383,6 +497,133 @@ function updateOccupancyBarFromDropdown() {
   if (restaurantName) updateOccupancyBar(restaurantName);
 }
 
+let predictionFilter = null; // null = all, 'RU-A', 'RU-B', 'RA', 'RS'
+
+function updatePredictionDisplay() {
+    if (!predictionData) return;
+
+    const container = document.getElementById('predicted-bars');
+    container.innerHTML = ''; // clear previous display
+
+    const maxCapacity = 1000;
+
+    // Define restaurants
+    let restaurants = [
+        { name: "RU-A + RU-B", keys: ["RU-A", "RU-B"] },
+        { name: "RA", keys: ["RA"] },
+        { name: "RS", keys: ["RS"] }
+    ];
+
+    // Apply filter
+    if (predictionFilter) {
+        if (predictionFilter === "RU") {
+            restaurants = [
+                { name: "RU-A", keys: ["RU-A"] },
+                { name: "RU-B", keys: ["RU-B"] }
+            ];
+        } else {
+            restaurants = restaurants.filter(r => r.keys.includes(predictionFilter));
+        }
+    }
+
+    restaurants.forEach(r => {
+        const lunchIndex = predictionData.MealType.findIndex(mt => mt === "lunch");
+        const dinnerIndex = predictionData.MealType.findIndex(mt => mt === "dinner");
+
+        const meals = [
+            { type: "Lunch", index: lunchIndex },
+            { type: "Dinner", index: dinnerIndex }
+        ];
+
+        // Row container
+        const row = document.createElement('div');
+        row.style.display = 'flex';
+        row.style.alignItems = 'center';
+        row.style.margin = '8px 0';
+        row.style.justifyContent = 'flex-start';
+        row.style.width = '80%';
+        row.style.marginLeft = 'auto';
+        row.style.marginRight = 'auto';
+
+        // Restaurant name label
+        const nameLabel = document.createElement('div');
+        nameLabel.textContent = r.name;
+        nameLabel.style.fontWeight = 'bold';
+        nameLabel.style.fontSize = '14px';
+        nameLabel.style.color = '#333';
+        nameLabel.style.width = '160px'; // fixed width for alignment
+        row.appendChild(nameLabel);
+
+        // Create circles for lunch and dinner
+        meals.forEach(meal => {
+            const value = r.keys.reduce((sum, key) => sum + (parseFloat(predictionData[key][meal.index]) || 0), 0);
+            const percent = Math.min((value / maxCapacity) * 100, 100);
+
+            let color = '';
+            if (percent > 90) color = "#D32F2F";       // red
+            else if (percent > 75) color = "#FFA726";  // orange
+            else if (percent > 50) color = "#66BB6A";  // medium green
+            else if (percent > 25) color = "#C8E6C9";  // light green
+            else color = "#E8F5E9";                    // light green
+
+            const mealContainer = document.createElement('div');
+            mealContainer.style.display = 'flex';
+            mealContainer.style.alignItems = 'center';
+            mealContainer.style.marginRight = '12px';
+
+            const circle = document.createElement('div');
+            circle.style.width = '25px';
+            circle.style.height = '25px';
+            circle.style.borderRadius = '50%';
+            circle.style.background = color;
+            circle.style.marginRight = '6px';
+
+            const label = document.createElement('div');
+            label.textContent = `${meal.type}: ${Math.round(value)}`;
+            label.style.fontSize = '12px';
+            label.style.color = '#333';
+            label.style.width = '60px';        // fixed width
+            label.style.textAlign = 'left';    // ensure the circle stays fixed
+
+            mealContainer.appendChild(circle);
+            mealContainer.appendChild(label);
+            row.appendChild(mealContainer);
+        });
+
+        container.appendChild(row);
+    });
+}
+
+
+
+
+// --- Update filter on polygon click ---
+function updatePredictionFilter(name) {
+    if (name === "Restaurante Universitário") {
+        predictionFilter = "RU"; // show RU-A and RU-B separately
+    } else if (name === "Restaurante Administrativo") {
+        predictionFilter = "RA";
+    } else if (name === "Restaurante da Saturnino") {
+        predictionFilter = "RS";
+    } else {
+        predictionFilter = null;
+    }
+    updatePredictionDisplay();
+}
+
+// Example: integrate with map click
+chartMapOverlay.getZr().on('click', params=>{
+  const x=params.offsetX, y=params.offsetY;
+  polygons.forEach(poly=>{
+    if(isPointInPolygon([x,y], projectPolygon(poly))){
+      updateDropdownForPolygon(poly.name);
+      updatePredictionFilter(poly.name); // <-- update the bar filter
+    }
+  });
+});
+
+
+
 
 // --- Charts & Heatmap ---
 const chartRight = echarts.init(document.getElementById('chart'));
@@ -396,6 +637,7 @@ async function fetchCSV(){
     parseCSV(text);
     updateChart();
     updateHeatmap();
+    updatePolygonsColors();
     const currentDropdown = document.getElementById('graph-select').value;
 const currentRestName = Object.keys({
   "Restaurante Universitário": "RU-A",
@@ -442,7 +684,7 @@ function updateChart(){
       textStyle:{color:'#fff', fontWeight:'bold'}
     },
     xAxis:{ type:'category', data:xData, name:'Time', axisLine:{lineStyle:{color:'#888'}} },
-    yAxis:{ type:'value', name:metric, axisLine:{lineStyle:{color:'#888'}} },
+    yAxis:{ type:'value', name:metric, axisLine:{lineStyle:{color:'#2E7D32'}} },
     series:[{
       type:'line',
       data:yData,
@@ -532,7 +774,7 @@ function updateHeatmap(){
       orient:'horizontal',
       left:'center',
       top:'top',
-      inRange:{ color:['#ebedf0','#c6e48b','#7bc96f','#239a3b','#196127'] },
+      inRange:{ color:['#F1F8E9','#C5E1A5','#81C784','#388E3C','#1B5E20'] },
       textStyle:{ fontSize:12, color:'#333', fontWeight:'bold' }
     }
   });
@@ -566,8 +808,54 @@ document.getElementById('download-csv-btn').addEventListener('click', () => {
   URL.revokeObjectURL(url);
 });
 
+let predictionData = null;
 
-fetchCSV(); setInterval(fetchCSV,120000);
+async function fetchPredictions() {
+    try {
+        const res = await fetch('https://nana.tail7c9f88.ts.net/predict');
+        predictionData = await res.json();
+        updatePredictionDisplay();
+        updateTextBoxBorder();
+        updateTextBoxNow();
+    } catch (e) {
+        console.error("Failed to fetch predictions:", e);
+    }
+}
+
+
+
+function updatePolygonsColors() {
+    if (!csvData || !csvData.length) return;
+
+    const lastRow = csvData[csvData.length - 1];
+    const maxCapacity = 20; // adjust as needed
+
+    polygons.forEach(poly => {
+        let value = 0;
+        if (poly.name === "Restaurante Universitário") {
+            value = (parseFloat(lastRow["RU-A"])||0) + (parseFloat(lastRow["RU-B"])||0);
+        } else if (poly.name === "Restaurante Administrativo") {
+            value = parseFloat(lastRow["RA"]) || 0;
+        } else if (poly.name === "Restaurante da Saturnino") {
+            value = parseFloat(lastRow["RS"]) || 0;
+        }
+
+        // keep fill color constant
+        poly.fillColor = 'rgba(46,125,50,0.2)'; 
+
+        // change stroke color based on occupancy
+        if (value / maxCapacity > 0.8) poly.strokeColor = '#D32F2F'; // red
+        else if (value / maxCapacity > 0.5) poly.strokeColor = '#FFA726'; // orange
+        else poly.strokeColor = '#2E7D32'; // green
+    });
+
+    updatePolygons(); // redraw
+}
+
+
+
+fetchCSV(); fetchPredictions(); setInterval(fetchCSV,120000);
+setInterval(fetchPredictions, 120000);
 document.getElementById('reset-btn').onclick=()=>{ selectedDay=null; updateChart(); updateHeatmap(); };
 
 window.addEventListener('resize', ()=>{
