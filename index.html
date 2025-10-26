@@ -214,7 +214,7 @@
 
   <!-- Right side: Text box -->
   <div style="flex:3; display:flex; flex-direction:column; gap:5px;">
-    <h3 style="margin:0; font-weight:bold; color:#333;">Currently, on the Restaurants</h3>
+
     <div id="predicted-text-box" 
          style="min-height:120px; padding:10px; border-radius:6px; border:3px solid #09d18e; background:#fafafa; color:#333; font-size:14px; overflow-y:auto;">
       Loading...
@@ -393,24 +393,27 @@ function updateTextBoxNow() {
     const humidity = parseFloat(lastRow.Humidity || 0);
 
     const box = document.getElementById("predicted-text-box");
+    box.innerHTML = ''; // clear previous content
 
-    let warn = "No alerts.";
-    let warning = "Temperature and humidity are comfortable.";
+    // Determine warning
+    let warn = "Good Conditions!";
+    let warning = "Temperature and humidity are comfortable. Perfect for a good meal...";
     let borderColor = "#2E7D32"; // green
     let iconUrl = "icons/ok.png";
 
-    if (temperature > 35 && humidity > 70) {
-        warn = "Danger:";
-        warning = "High temperature and humidity! Risk of heat exhaustion! Bring water and umbrellas if you plan to stay on the line.";
+    if (temperature > 30 && humidity > 70) {
+        warn = "Danger!";
+        warning = "Risk of heat exhaustion! Bring water and umbrellas if you plan to stay in line.";
         borderColor = "#D32F2F";
         iconUrl = "icons/fire.png";
-    } else if (temperature > 25 && humidity > 50) {
-        warn = "Caution:";
-        warning = "High temperature and humidity. Bring some water and do not overstay in the sun.";
+    } else if (temperature > 27 && humidity > 50) {
+        warn = "Caution!";
+        warning = "High temperature and humidity. Bring water and do not overstay in the sun.";
         borderColor = "#FFA726";
         iconUrl = "icons/danger.png";
     }
 
+    // Determine if restaurants are open
     const now = new Date();
     const currentMinutes = now.getHours() * 60 + now.getMinutes();
     const openIntervals = [
@@ -420,26 +423,61 @@ function updateTextBoxNow() {
         [11 * 60 + 15, 14 * 60],
         [17 * 60 + 30, 19 * 60]
     ];
-
     const isOpen = openIntervals.some(interval =>
         currentMinutes >= interval[0] && currentMinutes <= interval[1]
     );
-    const statusText = isOpen ? "Restaurants are OPEN" : "Restaurants are CLOSED";
+    const statusText = isOpen ? "Restaurants are OPEN!" : "Restaurants are CLOSED.";
 
-    // --- Flexbox with proper alignment ---
+    // --- Box styles ---
     box.style.borderColor = borderColor;
-    box.innerHTML = `
-        <div style="display:flex; align-items:center; gap:100px; padding-left:20px;">
-            <img src="${iconUrl}" style="width:60px; height:60px; flex-shrink:0;">
-            <div style="display:flex; flex-direction:column; justify-content:center; margin-left:10px;">
-                <p style="margin:2px 0; font-size:14px;"><strong>Temperature:</strong> ${temperature.toFixed(1)}°C</p>
-                <p style="margin:2px 0; font-size:14px;"><strong>Humidity:</strong> ${humidity.toFixed(1)}%</p>
-                <p style="margin:2px 0; font-size:14px;"><strong>${warn}</strong> ${warning}</p>
-                <p style="margin:2px 0; font-size:14px;"><strong>Status:</strong> ${statusText}</p>
-            </div>
-        </div>
-    `;
+    box.style.display = "flex";
+    box.style.alignItems = "center"; // vertical center
+    box.style.padding = "15px 20px";
+    box.style.gap = "60px";
+
+    // --- Icon ---
+    const img = document.createElement("img");
+    img.src = iconUrl;
+    img.style.width = "70px";
+    img.style.height = "70px";
+    img.style.flexShrink = "0";
+    box.appendChild(img);
+
+    // --- Text container ---
+    const textContainer = document.createElement("div");
+    textContainer.style.display = "flex";
+    textContainer.style.flexDirection = "column";
+    textContainer.style.justifyContent = "center"; // vertical center relative to icon
+
+    // Title (big)
+    const title = document.createElement("h2");
+    title.textContent = warn;
+    title.style.margin = "0"; // remove default margin
+    title.style.fontSize = "24px";
+    title.style.color = borderColor;
+    textContainer.appendChild(title);
+
+    // Status line (medium)
+    const status = document.createElement("p");
+    status.textContent = statusText;
+    status.style.margin = "5px 0"; // small margin for spacing
+    status.style.fontSize = "18px";
+    status.style.fontWeight = "bold";
+    textContainer.appendChild(status);
+
+    // Details (small)
+    const details = document.createElement("p");
+    details.innerHTML = `<strong>${temperature.toFixed(1)}°C /</strong>
+                         <strong> ${humidity.toFixed(1)}%</strong><br>
+                         ${warning}`;
+    details.style.margin = "0";
+    details.style.fontSize = "14px";
+    textContainer.appendChild(details);
+
+    box.appendChild(textContainer);
 }
+
+
 
 
 
